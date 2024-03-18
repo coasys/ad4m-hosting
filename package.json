@@ -1,0 +1,14 @@
+{
+  "name": "ad4m-hosting",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "spawn-docker": "./scripts/spawn-docker.sh",
+    "spawn-docker:windows": "powershell.exe -ExecutionPolicy Bypass -File ./scripts/spawn-docker.ps1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
