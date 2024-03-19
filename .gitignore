@@ -1,2 +1,4 @@
 node_modules
 dist
+database.sqlite
+docker/ad4m-executor.exe
