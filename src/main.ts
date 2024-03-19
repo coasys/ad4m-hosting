@@ -7,6 +7,7 @@ import { Sequelize, Model, DataTypes } from 'sequelize';
 import Docker from 'dockerode';
 import getPort from 'get-port';
 import { execSync } from 'child_process';
+import { nanoid } from 'nanoid'
 
 const docker = new Docker();
 
@@ -43,12 +44,17 @@ class Service extends Model {
     declare serviceId: string;
     declare port: number;
     declare paused: boolean;
+    declare adminCredential: string;
 }
 Service.init({
     userId: DataTypes.INTEGER,
     serviceId: DataTypes.STRING,
     port: DataTypes.INTEGER,
     paused: DataTypes.BOOLEAN,
+    adminCredential: {
+        type: DataTypes.STRING,
+        defaultValue: nanoid()
+    }
 }, { sequelize, modelName: 'service' });
 
 User.hasMany(Service, { foreignKey: 'userId' });
@@ -122,7 +128,6 @@ app.post('/service/create', ensureAuthenticated, async (req, res) => {
     // @ts-ignore
     const service = await Service.findOne({ where: { userId: req.user.id } });
 
-    
     if (service) {
         if (service.paused) {
             res.status(400).send({ message: 'Service already exists but paused.' });
@@ -131,6 +136,8 @@ app.post('/service/create', ensureAuthenticated, async (req, res) => {
         }
     } else {
         const port = await getPort();
+
+        const requestCredentials = nanoid();
 
         const volume = await docker.createVolume({
             // @ts-ignore
@@ -147,6 +154,7 @@ app.post('/service/create', ensureAuthenticated, async (req, res) => {
             TaskTemplate: {
                 ContainerSpec: {
                     Image: "ad4m-hosting-image",
+                    Env: [`REQUEST_CREDENTIALS=${requestCredentials}`],
                     Mounts: [{
                         Source: volume.Name,
                         Type: "volume",
@@ -169,7 +177,8 @@ app.post('/service/create', ensureAuthenticated, async (req, res) => {
             userId: req.user.id,
             serviceId: service.id,
             port: port,
-            paused: false
+            paused: false,
+            requestCredentials
         });
 
         res.send(`Service created with ID: ${service.id}`);
@@ -183,7 +192,7 @@ app.get('/service/info', ensureAuthenticated, async (req, res) => {
     if (!service) {
         res.status(404).send({ message: 'No service found for the user.' });
     } else {
-        res.send(service);
+        res.json(service);
     }
 });
 
