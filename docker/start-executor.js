@@ -3,7 +3,7 @@ const path = require("node:path");
 
 async function runExecutor() {
     // const command = path.resolve('docker', 'ad4m-executor');
-    const command = path.resolve('ad4m', 'target', 'release', 'ad4m-executor');
+    const command = path.resolve('ad4m-executor');
 
     let executorProcess = null;
     execSync(`${command} init`, {cwd: process.cwd()})

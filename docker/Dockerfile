@@ -4,7 +4,9 @@ FROM ubuntu:latest
 # Install system dependencies or any other tools you need
 RUN apt-get update && apt-get install -y \
     libgtk-3-0 libwebkit2gtk-4.0-37 libappindicator3-1 librsvg2-bin patchelf protobuf-compiler cmake \
-    curl bash wget tar unzip git python3
+    curl bash wget tar unzip git python3 build-essential \
+    && curl -sL https://deb.nodesource.com/setup_18.x | bash - && apt-get install -y nodejs \
+    && apt-get clean
 
 # Install Go
 ENV GO_VERSION 1.22.0
@@ -15,10 +17,6 @@ RUN wget https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz -O go.tar.gz \
 # Set Go environment variables
 ENV GOPATH /go
 ENV PATH $GOPATH/bin:/usr/local/go/bin:$PATH
-
-# Install Node
-RUN curl -sL https://deb.nodesource.com/setup_18.x | bash -
-RUN apt-get install -y nodejs
 
 # Install Rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -38,35 +36,18 @@ RUN mkdir ~/.npm-global \
 # Install pnpm
 RUN npm install -g pnpm
 
-# Clean up to reduce image size
-RUN apt-get clean
-
 # Set the PATH environment variable
 ENV PATH="/root/.cargo/bin:/root/.deno/bin:/root/.npm-global/bin:$PATH"
 
-# We need killall for the CLI tests
-RUN apt-get install -y psmisc
-
 # Clone & checkout the AD4M repo
 RUN echo "Cloning AD4M repo 2"
-RUN git clone https://github.com/coasys/ad4m.git
-WORKDIR ad4m
-RUN git checkout host-root
+RUN git clone https://github.com/coasys/ad4m.git && cd ad4m \
+    && git checkout host-root && pnpm install && cd core && pnpm install && cd ../ \
+    && pnpm build-libs && cp target/release/ad4m-executor ../ && cd ../ && rm -rf ad4m
 
-RUN apt-get install -y build-essential
-
-# Install dependencies and build the project
-RUN pnpm install
-RUN cd core && pnpm install
-RUN cd ../
-RUN pnpm build-libs
-
-ENV PATH="target/release/ad4m-executor:$PATH"
+ENV PATH="ad4m/target/release/ad4m-executor:$PATH"
 
 COPY ./start-executor.js /start-executor.js
 
-WORKDIR /
-
 # Start the ad4m executor
-# CMD ["ls", "-al"]
 CMD ["node", "./start-executor.js"]
