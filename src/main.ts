@@ -4,6 +4,11 @@ import passport from 'passport';
 import { Strategy as LocalStrategy } from 'passport-local';
 import bcrypt from 'bcryptjs';
 import { Sequelize, Model, DataTypes } from 'sequelize';
+import Docker from 'dockerode';
+import getPort from 'get-port';
+import { execSync } from 'child_process';
+
+const docker = new Docker();
 
 const app = express();
 const port = 3000;
@@ -18,11 +23,36 @@ const sequelize = new Sequelize({
 
 sequelize.sync();
 
-class User extends Model {}
+class User extends Model {
+    declare id: number;
+    declare email: string;
+    declare password: string;
+ }
 User.init({
     email: DataTypes.STRING,
-    password: DataTypes.STRING
+    password: DataTypes.STRING,
+    id: {
+        type: DataTypes.INTEGER,
+        autoIncrement: true,
+        primaryKey: true,
+    },
 }, { sequelize, modelName: 'user' });
+
+class Service extends Model {
+    declare userId: number;
+    declare serviceId: string;
+    declare port: number;
+    declare paused: boolean;
+}
+Service.init({
+    userId: DataTypes.INTEGER,
+    serviceId: DataTypes.STRING,
+    port: DataTypes.INTEGER,
+    paused: DataTypes.BOOLEAN,
+}, { sequelize, modelName: 'service' });
+
+User.hasMany(Service, { foreignKey: 'userId' });
+Service.belongsTo(User, { foreignKey: 'userId' });
 
 passport.use(new LocalStrategy({ usernameField: 'email' },
     async (email, password, done) => {
@@ -88,9 +118,103 @@ app.get('/', (req, res) => {
     res.send('Hello, world!');
 });
 
-app.get('/protected', ensureAuthenticated, (req, res) => {
-    res.send('This is a protected route');
+app.post('/service/create', ensureAuthenticated, async (req, res) => {
+    // @ts-ignore
+    const service = await Service.findOne({ where: { userId: req.user.id } });
+
+    
+    if (service) {
+        if (service.paused) {
+            res.status(400).send({ message: 'Service already exists but paused.' });
+        } else {
+            res.status(400).send({ message: 'Service already exists for the user.' });
+        }
+    } else {
+        const port = await getPort();
+        const service = await docker.createService({
+            Name: "my-service",
+            Mode: {
+                Replicated: {
+                    Replicas: 1
+                }
+            },
+            TaskTemplate: {
+                ContainerSpec: {
+                    Image: "ad4m-hosting-image"
+                }
+            },
+            EndpointSpec: {
+                Ports: [
+                    {
+                        TargetPort: 12000,
+                        PublishedPort: port
+                    }
+                ]
+            }
+        });
+
+        await Service.create({
+            // @ts-ignore
+            userId: req.user.id,
+            serviceId: service.id,
+            port: port,
+            paused: false
+        });
+
+        res.send(`Service created with ID: ${service.id}`);
+    }
 });
+
+app.get('/service/info', ensureAuthenticated, async (req, res) => {
+    // @ts-ignore
+    const service = await Service.findOne({ where: { userId: req.user.id } });
+
+    if (!service) {
+        res.status(404).send({ message: 'No service found for the user.' });
+    } else {
+        res.send(service);
+    }
+});
+
+app.delete('/service/delete', ensureAuthenticated, async (req, res) => {
+    // @ts-ignore
+    const service = await Service.findOne({ where: { userId: req.user.id } });
+
+    if (!service) {
+        res.status(404).send({ message: 'No service found for the user.' });
+    } else {
+        const dockerService = docker.getService(service.serviceId);
+
+        await dockerService.remove();
+
+        await service.destroy();
+
+        res.send(`Service with ID: ${service.serviceId} removed`);
+    }
+})
+
+app.put('/service/toggle', ensureAuthenticated, async (req, res) => {
+    // @ts-ignore
+    const service = await Service.findOne({ where: { userId: req.user.id } });
+
+    if (!service) {
+        res.status(404).send({ message: 'No service found for the user.' });
+    } else {
+        const dockerService = docker.getService(service.serviceId);
+
+        const serviceInfo = await dockerService.inspect();
+
+        const { Replicas } = serviceInfo.Spec.Mode.Replicated;
+
+        const replicas = Replicas === 1 ? 0 : 1;
+
+        execSync(`docker service update --replicas ${replicas} ${service.serviceId}`);
+        
+        await Service.update({ paused: !Replicas }, { where: { serviceId: service.serviceId } });
+
+        res.send(`Service with ID: ${service.serviceId} toggled`);
+    }
+})
 
 app.listen(port, () => {
     console.log(`Server is running at http://localhost:${port}`);
