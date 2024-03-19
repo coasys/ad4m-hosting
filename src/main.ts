@@ -131,6 +131,12 @@ app.post('/service/create', ensureAuthenticated, async (req, res) => {
         }
     } else {
         const port = await getPort();
+
+        const volume = await docker.createVolume({
+            // @ts-ignore
+            Name: `${req.user.id}_volume`
+        });
+
         const service = await docker.createService({
             Name: "my-service",
             Mode: {
@@ -140,7 +146,12 @@ app.post('/service/create', ensureAuthenticated, async (req, res) => {
             },
             TaskTemplate: {
                 ContainerSpec: {
-                    Image: "ad4m-hosting-image"
+                    Image: "ad4m-hosting-image",
+                    Mounts: [{
+                        Source: volume.Name,
+                        Type: "volume",
+                        Target: "/.ad4m"
+                    }]
                 }
             },
             EndpointSpec: {
@@ -150,7 +161,7 @@ app.post('/service/create', ensureAuthenticated, async (req, res) => {
                         PublishedPort: port
                     }
                 ]
-            }
+            },
         });
 
         await Service.create({
